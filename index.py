@@ -1,71 +1,137 @@
-import json
-from googletrans import Translator
-import sys
-import re
+import requests
+import translator
+import json 
+import colorama
+import logs
 
-sys.stdin.reconfigure(encoding='utf-8')
-sys.stdout.reconfigure(encoding='utf-8')
-
-def logs(level, message):
-    print(f"LEVEL : [{level}] = {message}")
-
-inputPath = "english/English.json"
-outputPath = "french/French.json"
 configPath = "config.json"
-
-translator = Translator()
 try:
     with open(configPath, 'r', encoding='utf-8') as apiFile:
         config = json.load(apiFile)
-        api_key = config.get('api_key')
-        api_pwd = config.get('api_pwd')
-        api_url = config.get('api_url')
-        if api_key is None or api_pwd is None or api_url is None:
-            raise ValueError("Une ou plusieurs clés de configuration manquent dans le fichier config.json.")
+        api_token = config.get('paratranz_api')
+        if api_token is None:
+            raise ValueError("paratranz_api key not found in config.json file.")
+    
 except FileNotFoundError:
-    logs("GRAVE", "Fichier introuvable, fin du script.")
+    logs.addLogs("ERROR", "config.json file not found, script terminated.")
     exit(1)
 except json.JSONDecodeError:
-    logs("GRAVE", "Fichier config.json invalide, fin du script.")
+    logs.addLogs("ERROR", "Invalid config.json file, script terminated.")
     exit(1)
 except ValueError:
-    logs("GRAVE", "Une ou plusieurs clés de configuration manquent dans le fichier config, fin du script")
+    logs.addLogs("ERROR", "paratranz_api key not found in config.json file, script terminated.")
     exit(1)
 
-compteur = 0
-with open(inputPath, 'r', encoding='utf-8') as inputFile:
-    english = json.load(inputFile)
 
-    translateFrench = {}
-    total_lines = len(english)
-    
-    for index, line in enumerate(english, start=1):
+
+def updateTranslate(result, translation):
+    """
+    Update the translation of the string in the Paratranz project.
+    :param result: The string object to be updated
+    :param translation: The translated text to be updated
+    :return: True if the string is successfully updated, False otherwise
+    """
+    url = f"https://paratranz.cn/api/projects/{ParatranzProjectList[0]}/strings/{result.get('id')}"
+    headers = {
+        "Authorization": api_token,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "translation": str(translation)
+    }
+    response = requests.put(url, headers=headers, json=data)
+    if response.status_code == 200:
+        logs.addLogs("INFO", f"String successfully translated for ID: {result.get('id')}")
+        return True
+    else:
         try:
-            exceptWords = re.findall(r'\{\{(.*?)\}\}', line)
-            lineEscaped = line
-            for index2, word in enumerate(exceptWords, start=1):
-                lineEscaped = lineEscaped.replace(word, str(index2)+"mot")
+            logs.addLogs("WARNING", f"Failed to update string for ID: {result.get('id')}, error {response.status_code}, {response.json()}")
+        except:
+            logs.addLogs("WARNING", f"Failed to update string for ID: {result.get('id')}, error {response}")
 
-            frenchLine = translator.translate(lineEscaped, src='en', dest='fr').text
 
-            for index2, word in enumerate(exceptWords, start=1):
-                frenchLine = frenchLine.replace(str(index2)+"mot", word)
-                frenchLine = frenchLine.replace(str(index2)+"Mot", word)
-            
-            translateFrench[f"{line}"] = f"{frenchLine}"
-            compteur += 1
-            remaining_lines = total_lines - compteur
-            if(compteur % 100 == 0):
-                print(f"Lignes traduites : {compteur} / Lignes restantes : {remaining_lines}")
-                # with open(outputPath, "w", encoding='utf-8') as outputFile:
-                #     json.dump(translateFrench, outputFile, ensure_ascii=False, indent=4)
-                # exit(6)
-        except Exception as e:
-            print(f"Erreur lors de la traduction : {str(e)}")
-            # En cas d'erreur, ajouter la ligne originale avec une clé unique
-            translateFrench[f"{line}"] = line
-    
-    with open(outputPath, "w", encoding='utf-8') as outputFile:
-        json.dump(translateFrench, outputFile, ensure_ascii=False, indent=4)
+def getNbPages():
+    """
+    Get the total number of pages in the Paratranz project.
+    :return: The total number of pages in the project
+    """
+    url = f"https://paratranz.cn/api/projects/{ParatranzProjectList[0]}/strings?pageCount=1&pageSize={DEFAULT_PAGE_SIZE}"
+    headers = {
+        "Authorization": api_token,
+        "Content-Type": "application/json"
+    }
+    response = requests.get(url, headers=headers)
+    if(response.status_code == 200):
+        strings =  response.json()
+        results = strings.get('pageCount', [])
+        return results
+        
+    else:
+        try:
+            logs.addLogs("ERROR", f"Error {response.status_code}: {response.json()}")
+        except:
+            logs.addLogs("ERROR", f"Error {response}")
+        exit(1000)
 
-print(f"Traduction terminée. Total des lignes traduites : {compteur}")
+def getStrings(number):
+    """
+    Get the strings from the Paratranz project.
+    :param number: The page number to retrieve the strings
+    :return: The list of strings in the page
+    """
+    url = f"https://paratranz.cn/api/projects/{ParatranzProjectList[0]}/strings?pageSize={DEFAULT_PAGE_SIZE}&page="+str(number)
+    headers = {
+        "Authorization": api_token,
+        "Content-Type": "application/json"
+    }
+    response = requests.get(url, headers=headers)
+    if(response.status_code == 200):
+        strings =  response.json()
+        results = strings.get('results', [])
+        return results
+    else:
+        try:
+            logs.addLogs("ERROR", f"Error {response.status_code}: {response.json()}")
+        except:
+            logs.addLogs("ERROR", f"Error {response}")
+        exit(1001)
+
+def translateString(results):
+    """
+    Translate the strings in the Paratranz project.
+    :param results: The list of strings to be translated
+    """
+    for result in results:
+        if not result.get('translation'): 
+            if (APIList[0] == "SYSTRAN"):
+                frenchLine = translator.systranTranslate(result.get('original'))
+            elif (APIList[0] == "DEEPL"):
+                frenchLine = translator.deepLTranslate(result.get('original'))
+            else: 
+                frenchLine = translator.googleTranslate(result.get('original'))
+            if frenchLine == False:
+                logs.addLogs("WARNING", ">>> Problem with the API, changing...")
+                APIList.pop(0)
+                logs.addLogs("INFO", f"API changed to {APIList[0]}")
+                translateString(results)
+            else:
+                try:
+                    updateTranslate(result, frenchLine)
+                except Exception as e:
+                    logs.addLogs("ERROR", "Error updating the string." + str(e))
+
+
+DEFAULT_PAGE_SIZE = 1
+
+APIList = ["DEEPL", "GOOGLE"] # APIList = ["SYSTRAN", "DEEPL", "GOOGLE"]
+ParatranzProjectList = [10733]
+
+currentPage = 1
+totalPage = -1
+totalPage = int(getNbPages())
+while currentPage <= totalPage:
+    results = getStrings(currentPage)
+    translateString(results)
+    if(currentPage%100==0):
+        logs.addLogs("INFO", f"Page {currentPage}/{totalPage} successfully translated.")
+    currentPage += 1
