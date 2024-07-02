@@ -103,23 +103,33 @@ def translateString(results):
     """
     for result in results:
         if not result.get('translation'): 
-            if (APIList[0] == "SYSTRAN"):
-                frenchLine = translator.systranTranslate(result.get('original'))
-            elif (APIList[0] == "DEEPL"):
-                frenchLine = translator.deepLTranslate(result.get('original'))
-            else: 
-                frenchLine = translator.googleTranslate(result.get('original'))
-            if frenchLine == False:
-                logs.addLogs("WARNING", ">>> Problem with the API, changing...")
-                APIList.pop(0)
-                logs.addLogs("INFO", f"API changed to {APIList[0]}")
-                translateString(results)
-            else:
-                try:
-                    updateTranslate(result, frenchLine)
-                except Exception as e:
-                    logs.addLogs("ERROR", "Error updating the string." + str(e))
+            listTranslate = []
+            listIA = []
+            listTranslate.append(result.get('original'))
+            listIA.append("ORIGINAL : ")
+            googleTranslate = translator.googleTranslate(result.get('original'))
+            if (type(googleTranslate) != bool):
+                listTranslate.append(googleTranslate)
+                listIA.append("GOOGLE TRANSLATE : ")
+            deeplTranslate = translator.deepLTranslate(result.get('original'))
+            if (type(deeplTranslate) != bool):
+                listTranslate.append(deeplTranslate)
+                listIA.append("DEEPL TRANSLATE : ")
+            systranTranslate = translator.systranTranslate(result.get('original'))
+            if (type(systranTranslate) != bool):
+                listTranslate.append(systranTranslate)
+                listIA.append("SYSTRAN TRANSLATE : ")
 
+            if (len(listTranslate) == 1):
+                logs.addLogs("ERROR", ">>> No API available, skipping...")
+                exit(0)
+            else:
+                if (len(listTranslate)>2 and all(x == listTranslate[0] for x in listTranslate[1:])):
+                    updateTranslate(result, googleTranslate)
+                else:
+                    lastTranslate = translator.hugchatTranslate(listIA, listTranslate)
+                    updateTranslate(result, lastTranslate)    
+                    logs.addLogs("OTHER", ">>> Only one translation API is not enough, or the translation between multiple APIs is incorrect.")
 
 DEFAULT_PAGE_SIZE = 1
 
@@ -129,9 +139,52 @@ ParatranzProjectList = [10733]
 currentPage = 1
 totalPage = -1
 totalPage = int(getNbPages())
-while currentPage <= totalPage:
+
+
+DEBUG_MODE = int(input("Do you want to open the debug mode ? (1/0) : "))
+
+if DEBUG_MODE == 1:
     results = getStrings(currentPage)
     translateString(results)
-    if(currentPage%100==0):
-        logs.addLogs("INFO", f"Page {currentPage}/{totalPage} successfully translated.")
-    currentPage += 1
+    for result in results:
+        original = result.get('original')
+        print("DEBUG ORIGINAL \n" + original)
+        gTranslate = translator.googleTranslate(original)
+        deeplTranslate = translator.deepLTranslate(original)
+        systranTranslate = translator.systranTranslate(original)
+        print("DEBUG GOOGLE TRANSLATE \n" + str(gTranslate))
+        print("DEBUG DEEPL TRANSLATE \n" + str(deeplTranslate))
+        print("DEBUG SYSTRAN TRANSLATE \n" + str(systranTranslate))
+        listTranslate = []
+        listIA = []
+        listTranslate.append(original)
+        listIA.append("ORIGINAL : ")
+        if(type(gTranslate) != bool):
+            listTranslate.append(gTranslate)
+            listIA.append("GOOGLE TRANSLATE : ")
+        if(type(deeplTranslate) != bool):
+            listTranslate.append(deeplTranslate)
+            listIA.append("DEEPL TRANSLATE : ")
+        if(type(systranTranslate) != bool):
+            listTranslate.append(systranTranslate)
+            listIA.append("SYSTRAN TRANSLATE : ")
+        if (len(listTranslate) == 1):
+            logs.addLogs("ERROR", ">>> No API available, skipping...")
+            exit(0)
+        
+        if (len(listTranslate)>2 and all(x == listTranslate[0] for x in listTranslate[1:])):
+            updateTranslate(result, gTranslate)
+        else:
+            lastTranslate = translator.hugchatTranslate(listIA, listTranslate)
+            logs.addLogs("OTHER", ">>> Only one translation API is not enough, or the translation between multiple APIs is incorrect.")
+            print("DEBUG LAST TRANSLATE \n" + lastTranslate)
+        print("DEBUG END \n")
+
+else:
+    while currentPage <= totalPage:
+        results = getStrings(currentPage)
+        translateString(results)
+        if(currentPage%100==0):
+            logs.addLogs("INFO", f"Page {currentPage}/{totalPage} successfully translated.")
+        currentPage += 1
+    
