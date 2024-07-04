@@ -6,6 +6,9 @@ import re
 import logs
 from hugchat import hugchat
 from hugchat.login import Login
+import argostranslate.package 
+import argostranslate.translate
+import systranio
 
 configPath = "config.json"
 
@@ -18,7 +21,11 @@ def hugchatTranslate(listIA, listText, src="en", dest="fr"):
         GENERIQUE = config["MESSAGE_GENERIQUE"]
 
     sign = Login(EMAIL, PASSWORD)
-    cookies = sign.login(cookie_dir_path=cookie_path_dir, save_cookies=False)
+    try:
+        cookies = sign.login(cookie_dir_path=cookie_path_dir, save_cookies=True)
+    except Exception as e:
+        logs.addLogs("WARNING", "hugchat had encounter a problem : " + str(e))
+        return False
 
     # Create your ChatBot
     chatbot = hugchat.ChatBot(cookies=cookies.get_dict())  # or cookie_path="usercookies/<email>.json"
@@ -54,9 +61,8 @@ def googleTranslate(text, src="en", dest="fr"):
         translated = translator.translate(lineEscaped, src=src, dest=dest)
         outputLine = translated.text
     except Exception as e:
-        print(f'Error during translation: {str(e)}')
-        exit(500)
-        outputLine = text
+        outputLine = False
+        logs.addLogs("WARNING", f"Google Translate API error: {e}")
 
     # Replace placeholders with the original words
     if exceptWords:
@@ -64,6 +70,30 @@ def googleTranslate(text, src="en", dest="fr"):
             outputLine = re.sub(f'{index}mot', word, outputLine, flags=re.IGNORECASE)
 
     return outputLine
+
+def argosTranslate(text, from_code="en", to_code="fr"):
+    """
+    Translates the given text from the source language to the destination language using the Argo Translate API.
+    :param text: Text to be translated
+    :param from_code: Source language of the text
+    :param to_code: Destination language of the text
+    :return: Translated text
+    """
+    argostranslate.package.update_package_index()
+    available_packages = argostranslate.package.get_available_packages()
+    package_to_install = next(
+        filter(
+            lambda x: x.from_code == from_code and x.to_code == to_code, available_packages
+        )
+    )
+    argostranslate.package.install_from_path(package_to_install.download())
+    try:
+        translatedText = argostranslate.translate.translate(text, from_code, to_code)
+    except Exception as e: 
+        translatedText = False
+        logs.addLogs("WARNING", f"Argos Translate API error: {e}")
+    return translatedText
+    
 
 
 
@@ -90,6 +120,7 @@ def deepLTranslate(text, src="en", dest="fr"):
     try:
         outputLine = str(translator.translate_text(text, source_lang=src, target_lang=dest))
     except Exception as e:
+        logs.addLogs("WARNING", str(e))
         if("Quota" in str(e)):
             return False
         outputLine = text
@@ -134,28 +165,12 @@ def systranTranslate(text, src="en", dest="fr"):
     except Exception as e:
         logs.addLogs("ERROR", f"Error: {e}")
         exit(1)
-    # Prepare request payload
-    payload = {
-        "input": [text], 
-        "source": src,
-        "target": dest
-    }
     
-    # Send translation request to Systran API
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Key {systran_key}"
-    }
-    response = requests.post("https://api-platform.systran.net/translation/text/translate", json=payload, headers=headers)
-    
-    # Check if translation is successful
-    if response.status_code != 200:
-        try:
-            logs.addLogs("WARNING", f"Systran API malfunction: {response.status_code}")
-        except:
-            logs.addLogs("WARNING", f"Systran API malfunction: {response}")
-        return False
-    
-    # Parse and return the translated text from the response
-    translated_text = response.json()["outputs"][0]["output"]
+    try:
+        translation  = systranio.Translation(systran_key)
+        options = {'source': src } 
+        translated_text = translation.text('translation', dest, **options)
+    except Exception as e: 
+        translated_text = False
+        logs.addLogs("WARNING", "Systran API error : " + str(e))
     return translated_text

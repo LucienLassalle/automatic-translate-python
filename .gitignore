@@ -1,2 +1,4 @@
 config.json
 logs.txt
+__pycache__/*
+cookies/*

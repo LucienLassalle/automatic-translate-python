@@ -1,7 +1,6 @@
 import requests
 import translator
 import json 
-import colorama
 import logs
 
 configPath = "config.json"
@@ -96,7 +95,7 @@ def getStrings(number):
             logs.addLogs("ERROR", f"Error {response}")
         exit(1001)
 
-def translateString(results):
+def translateString(results, googleTranslate, argosTranslate, deeplTranslate, systranTranslate):
     """
     Translate the strings in the Paratranz project.
     :param results: The list of strings to be translated
@@ -107,15 +106,26 @@ def translateString(results):
             listIA = []
             listTranslate.append(result.get('original'))
             listIA.append("ORIGINAL : ")
-            googleTranslate = translator.googleTranslate(result.get('original'))
+            if (type(googleTranslate) != bool):
+                googleTranslate = translator.googleTranslate(result.get('original'))
             if (type(googleTranslate) != bool):
                 listTranslate.append(googleTranslate)
                 listIA.append("GOOGLE TRANSLATE : ")
-            deeplTranslate = translator.deepLTranslate(result.get('original'))
+            
+            if (type(argosTranslate) != bool):
+                argosTranslate = translator.argosTranslate(result.get('original'))
+            if (type(argosTranslate) != bool):
+                listTranslate.append(argosTranslate)
+                listIA.append("ARGOS TRANSLATE : ")
+
+            if (type(deeplTranslate) != bool):
+                deeplTranslate = translator.deepLTranslate(result.get('original'))
             if (type(deeplTranslate) != bool):
                 listTranslate.append(deeplTranslate)
                 listIA.append("DEEPL TRANSLATE : ")
-            systranTranslate = translator.systranTranslate(result.get('original'))
+            
+            if (type(systranTranslate) != bool):
+                systranTranslate = translator.systranTranslate(result.get('original'))
             if (type(systranTranslate) != bool):
                 listTranslate.append(systranTranslate)
                 listIA.append("SYSTRAN TRANSLATE : ")
@@ -125,34 +135,49 @@ def translateString(results):
                 exit(0)
             else:
                 if (len(listTranslate)>2 and all(x == listTranslate[0] for x in listTranslate[1:])):
-                    updateTranslate(result, googleTranslate)
+                    try:
+                        updateTranslate(result, googleTranslate)
+                    except Exception as e:
+                        logs.addLogs("ERROR", f"Failed to update string for ID: {result.get('id')}, error {e}")
                 else:
-                    lastTranslate = translator.hugchatTranslate(listIA, listTranslate)
-                    updateTranslate(result, lastTranslate)    
                     logs.addLogs("OTHER", ">>> Only one translation API is not enough, or the translation between multiple APIs is incorrect.")
+                    lastTranslate = translator.hugchatTranslate(listIA, listTranslate)
+                    if (type(lastTranslate) != bool):
+                        try:
+                            updateTranslate(result, lastTranslate)    
+                        except Exception as e:
+                            logs.addLogs("ERROR", f"Failed to update string for ID: {result.get('id')}, error {e}")
+                    else:
+                        logs.addLogs("ERROR", ">>> The AI-based API failed to provide a correct response, therefore it is not possible to send the translation.")
+    return "", argosTranslate, deeplTranslate, systranTranslate # googleTranslate, argosTranslate, deeplTranslate, systranTranslate
+
 
 DEFAULT_PAGE_SIZE = 1
+DEBUG_MODE = int(input("Do you want to open the debug mode ? (1/0) : "))
 
-APIList = ["DEEPL", "GOOGLE"] # APIList = ["SYSTRAN", "DEEPL", "GOOGLE"]
+
 ParatranzProjectList = [10733]
+
 
 currentPage = 1
 totalPage = -1
 totalPage = int(getNbPages())
-
-
-DEBUG_MODE = int(input("Do you want to open the debug mode ? (1/0) : "))
-
 if DEBUG_MODE == 1:
     results = getStrings(currentPage)
-    translateString(results)
+    googleTranslate = ""
+    argosTranslate = ""
+    deeplTranslate = ""
+    systranTranslate = ""
+    translateString(results, googleTranslate, argosTranslate, deeplTranslate, systranTranslate)
     for result in results:
         original = result.get('original')
         print("DEBUG ORIGINAL \n" + original)
         gTranslate = translator.googleTranslate(original)
+        argrosTranslate = translator.argosTranslate(original)
         deeplTranslate = translator.deepLTranslate(original)
         systranTranslate = translator.systranTranslate(original)
         print("DEBUG GOOGLE TRANSLATE \n" + str(gTranslate))
+        print("DEBUG ARGOS TRANSLATE \n" + str(argrosTranslate))
         print("DEBUG DEEPL TRANSLATE \n" + str(deeplTranslate))
         print("DEBUG SYSTRAN TRANSLATE \n" + str(systranTranslate))
         listTranslate = []
@@ -162,6 +187,9 @@ if DEBUG_MODE == 1:
         if(type(gTranslate) != bool):
             listTranslate.append(gTranslate)
             listIA.append("GOOGLE TRANSLATE : ")
+        if(type(argrosTranslate) != bool):
+            listTranslate.append(argrosTranslate)
+            listIA.append("ARGOS TRANSLATE : ")
         if(type(deeplTranslate) != bool):
             listTranslate.append(deeplTranslate)
             listIA.append("DEEPL TRANSLATE : ")
@@ -173,7 +201,10 @@ if DEBUG_MODE == 1:
             exit(0)
         
         if (len(listTranslate)>2 and all(x == listTranslate[0] for x in listTranslate[1:])):
-            updateTranslate(result, gTranslate)
+            try:
+                updateTranslate(result, gTranslate)
+            except Exception as e:
+                logs.addLogs("ERROR", f"Failed to update string for ID: {result.get('id')}, error {e}")
         else:
             lastTranslate = translator.hugchatTranslate(listIA, listTranslate)
             logs.addLogs("OTHER", ">>> Only one translation API is not enough, or the translation between multiple APIs is incorrect.")
@@ -181,9 +212,13 @@ if DEBUG_MODE == 1:
         print("DEBUG END \n")
 
 else:
+    gTranslate = ""
+    argosTranslate = ""
+    deeplTranslate = ""
+    systranTranslate = ""
     while currentPage <= totalPage:
         results = getStrings(currentPage)
-        translateString(results)
+        gTranslate, argosTranslate, deeplTranslate, systranTranslate = translateString(results, gTranslate, argosTranslate, deeplTranslate, systranTranslate)
         if(currentPage%100==0):
             logs.addLogs("INFO", f"Page {currentPage}/{totalPage} successfully translated.")
         currentPage += 1
